@@ -20,7 +20,7 @@ from .mint import (
     CurrencyUnit,
     PostMeltQuoteResponse,
 )
-from .relay import NostrRelay, NostrEvent, RelayError
+from .relay import NostrRelay, NostrEvent, RelayError, QueuedNostrRelay, RelayPool
 from .crypto import (
     unblind_signature,
     NIP44Encrypt,
@@ -124,7 +124,11 @@ class Wallet:
 
         # Mint and relay instances
         self.mints: dict[str, Mint] = {}
-        self.relay_instances: list[NostrRelay] = []
+        self.relay_instances: list[NostrRelay | QueuedNostrRelay] = []
+
+        # Use RelayPool for queued event support
+        self.relay_pool: RelayPool | None = None
+        self._use_queued_relays = True  # Enable by default
 
         # Track minted quotes to prevent double-minting
         self._minted_quotes: set[str] = set()
@@ -400,8 +404,29 @@ class Wallet:
 
     async def _get_relay_connections(self) -> list[NostrRelay]:
         """Get relay connections, discovering if needed."""
-        if not self.relay_instances:
+        if self._use_queued_relays and self.relay_pool is None:
             # Try to discover relays
+            discovered_relays = await self._discover_relays()
+            relay_urls = discovered_relays or self.relays
+
+            # Create relay pool with queued support
+            self.relay_pool = RelayPool(
+                relay_urls[:5],  # Use up to 5 relays
+                batch_size=10,
+                batch_interval=0.5,  # Process queue every 0.5 seconds
+                enable_batching=True,
+            )
+
+            # Connect all relays in pool
+            await self.relay_pool.connect_all()
+
+            # For compatibility, add relays to instances list
+            self.relay_instances = cast(
+                list[NostrRelay | QueuedNostrRelay], self.relay_pool.relays
+            )
+
+        elif not self._use_queued_relays and not self.relay_instances:
+            # Legacy mode: use regular relays without queuing
             discovered_relays = await self._discover_relays()
             relay_urls = discovered_relays or self.relays
 
@@ -450,11 +475,43 @@ class Wallet:
         """Estimate the size of an event in bytes."""
         return len(json.dumps(event, separators=(",", ":")))
 
-    async def _publish_to_relays(self, event: dict) -> str:
+    async def _publish_to_relays(
+        self,
+        event: dict,
+        *,
+        token_data: dict[str, object] | None = None,
+        priority: int = 0,
+    ) -> str:
         """Publish event to all relays and return event ID."""
         # Apply rate limiting
         await self._rate_limit_relay_operations()
 
+        # Use relay pool if available for queued publishing
+        if self._use_queued_relays and self.relay_pool:
+            event_dict = NostrEvent(**event)  # type: ignore
+
+            # Determine priority based on event kind
+            if event["kind"] == EventKind.Token:
+                priority = 10  # High priority for token events
+            elif event["kind"] == EventKind.History:
+                priority = 5  # Medium priority for history
+            else:
+                priority = priority or 0
+
+            # Add to queue with token data if provided
+            success = await self.relay_pool.publish_event(
+                event_dict,
+                priority=priority,
+                token_data=token_data,
+                immediate=False,  # Use queue
+            )
+
+            if success:
+                return event["id"]
+            else:
+                raise RelayError("Failed to queue event for publishing")
+
+        # Legacy mode: direct publishing
         relays = await self._get_relay_connections()
         event_dict = NostrEvent(**event)  # type: ignore
 
@@ -882,9 +939,54 @@ class Wallet:
                 all_proofs.append(proof_with_mint)
                 proof_to_event_id[proof_id] = event["id"]
 
+        # Include pending proofs from relay pool queue
+        if self._use_queued_relays and self.relay_pool:
+            pending_token_data = self.relay_pool.get_pending_proofs()
+
+            for token_data in pending_token_data:
+                mint_url = token_data.get(
+                    "mint", self.mint_urls[0] if self.mint_urls else None
+                )
+                proofs = token_data.get("proofs", [])
+
+                for proof in proofs:
+                    proof_id = f"{proof['secret']}:{proof['C']}"
+                    if proof_id in proof_seen:
+                        continue
+                    proof_seen.add(proof_id)
+
+                    # Mark pending proofs with a special event ID
+                    pending_proof_with_mint: ProofDict = ProofDict(
+                        id=proof["id"],
+                        amount=proof["amount"],
+                        secret=proof["secret"],
+                        C=proof["C"],
+                        mint=mint_url,
+                    )
+                    all_proofs.append(pending_proof_with_mint)
+                    proof_to_event_id[proof_id] = "__pending__"  # Special marker
+
         # Validate proofs using cache system if requested
         if check_proofs and all_proofs:
-            all_proofs = await self._validate_proofs_with_cache(all_proofs)
+            # Don't validate pending proofs (they haven't been published yet)
+            non_pending_proofs = [
+                p
+                for p in all_proofs
+                if proof_to_event_id.get(f"{p['secret']}:{p['C']}", "") != "__pending__"
+            ]
+            pending_proofs = [
+                p
+                for p in all_proofs
+                if proof_to_event_id.get(f"{p['secret']}:{p['C']}", "") == "__pending__"
+            ]
+
+            # Validate only non-pending proofs
+            validated_proofs = await self._validate_proofs_with_cache(
+                non_pending_proofs
+            )
+
+            # Add back pending proofs (assume they're valid)
+            all_proofs = validated_proofs + pending_proofs
 
         # Calculate balance
         balance = sum(p["amount"] for p in all_proofs)
@@ -996,7 +1098,11 @@ class Wallet:
                 )
 
                 signed_event = self._sign_event(final_event)
-                event_id = await self._publish_to_relays(signed_event)
+                event_id = await self._publish_to_relays(
+                    signed_event,
+                    token_data=cast(dict[str, object], final_content_data),
+                    priority=10,
+                )
                 event_ids.append(event_id)
                 current_batch = [proof]
             else:
@@ -1023,7 +1129,11 @@ class Wallet:
             )
 
             signed_event = self._sign_event(final_event)
-            event_id = await self._publish_to_relays(signed_event)
+            event_id = await self._publish_to_relays(
+                signed_event,
+                token_data=cast(dict[str, object], final_content_data),
+                priority=10,
+            )
             event_ids.append(event_id)
 
         return event_ids
@@ -1077,7 +1187,13 @@ class Wallet:
 
         # Event is small enough, publish as single event
         signed_event = self._sign_event(test_event)
-        return await self._publish_to_relays(signed_event)
+
+        # Pass token data to relay pool for pending balance tracking
+        return await self._publish_to_relays(
+            signed_event,
+            token_data=cast(dict[str, object], content_data),
+            priority=10,  # High priority for token events
+        )
 
     async def delete_token_event(self, event_id: str) -> None:
         """Delete a token event via NIP-09 (kind 5)."""
