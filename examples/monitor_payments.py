@@ -1,12 +1,7 @@
-#!/usr/bin/env python3
-"""Example: Monitor for incoming Lightning payments.
-
-Shows how to create an invoice and monitor for payment in the background.
-Useful for point-of-sale systems or payment processing.
-"""
-
 import asyncio
+import os
 import time
+from dotenv import load_dotenv
 from sixty_nuts.wallet import Wallet
 
 
@@ -107,9 +102,15 @@ async def process_multiple_payments(wallet: Wallet):
 
 async def main():
     """Main example."""
+    load_dotenv()
+    nsec = os.getenv("NSEC")
+    if not nsec:
+        print("Error: NSEC environment variable not set. Please create a .env file.")
+        return
+
     # Initialize wallet
     async with Wallet(
-        nsec="nsec1vl83hlk8ltz85002gr7qr8mxmsaf8ny8nee95z75vaygetnuvzuqqp5lrx",
+        nsec=nsec,
     ) as wallet:
         # Example 1: Monitor single payment
         print("Example 1: Single payment monitoring")

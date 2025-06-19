@@ -12,4 +12,6 @@ wheels/
 # testing
 .cashu
 .pypirc
+# Environment variables
+.env
 proof_backups/

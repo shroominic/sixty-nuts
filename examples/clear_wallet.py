@@ -1,11 +1,18 @@
 import asyncio
+import os
+from dotenv import load_dotenv
 from sixty_nuts.wallet import Wallet, EventKind
 
 
 async def clear_wallet():
-    """Clear all tokens from a wallet with improved rate limiting."""
+    """Clear all tokens from a wallet."""
+    load_dotenv()
+    nsec = os.getenv("NSEC")
+    if not nsec:
+        print("Error: NSEC environment variable not set. Please create a .env file.")
+        return
     async with Wallet(
-        nsec="nsec1vl83hlk8ltz85002gr7qr8mxmsaf8ny8nee95z75vaygetnuvzuqqp5lrx",
+        nsec=nsec,
     ) as wallet:
         print("Clearing wallet tokens...")
 
@@ -16,7 +23,7 @@ async def clear_wallet():
         if balance == 0:
             print("Wallet is already empty")
             return
-
+          
         # Get relay connections and fetch events
         relays = await wallet._get_relay_connections()
         pubkey = wallet._get_pubkey()
@@ -39,8 +46,16 @@ async def clear_wallet():
         # Filter for token events
         token_events = [e for e in all_events if e["kind"] == EventKind.Token]
 
-        if not token_events:
-            print("No token events found")
+        # Collect event IDs to delete from the proofs
+        event_ids_to_delete = set()
+        if state.proofs:
+            for proof in state.proofs:
+                proof_id = f"{proof['secret']}:{proof['C']}" # Reconstruct proof_id for lookup
+                if proof_id in state.proof_to_event_id:
+                    event_ids_to_delete.add(state.proof_to_event_id[proof_id])
+
+        if not event_ids_to_delete:
+            print("No token events found to delete from current proofs.")
             return
 
         # Enhanced deletion with exponential backoff

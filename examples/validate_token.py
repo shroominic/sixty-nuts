@@ -2,7 +2,9 @@
 """Validate a Cashu token and check which proofs are spent."""
 
 import asyncio
+import os
 import sys
+from dotenv import load_dotenv
 from sixty_nuts.wallet import Wallet
 
 
@@ -113,7 +115,6 @@ async def validate_token(token: str):
                     else:
                         print(f"   ❌ Keyset {keyset_id} is NOT active (obsolete)")
                         print("      This keyset cannot be redeemed normally!")
-
             except Exception as e:
                 print(f"   Error checking keysets: {str(e)}")
 

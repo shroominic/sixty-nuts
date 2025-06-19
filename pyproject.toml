@@ -34,6 +34,7 @@ dependencies = [
     "coincurve>=21.0.0",
     "cryptography>=45.0.3",
     "cbor2>=5.6.5",
+    "python-dotenv>=1.1.0",
 ]
 urls = { "Repository" = "https://github.com/shroominic/sixty-nuts" }
 

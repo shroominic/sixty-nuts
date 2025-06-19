@@ -1,12 +1,7 @@
-#!/usr/bin/env python3
-"""Example: Send Cashu tokens to a Lightning Address.
-
-Shows how to send tokens to any Lightning Address (user@domain.com format).
-This automatically handles the LNURL flow and Lightning payment.
-"""
-
 import asyncio
+import os
 import sys
+from dotenv import load_dotenv
 from sixty_nuts.wallet import Wallet, WalletError
 
 
@@ -53,9 +48,15 @@ async def main():
     address = sys.argv[1]
     amount = int(sys.argv[2])
 
+    load_dotenv()
+    nsec = os.getenv("NSEC")
+    if not nsec:
+        print("Error: NSEC environment variable not set. Please create a .env file.")
+        return
+
     # Initialize wallet
     async with Wallet(
-        nsec="nsec1vl83hlk8ltz85002gr7qr8mxmsaf8ny8nee95z75vaygetnuvzuqqp5lrx",
+        nsec=nsec,
     ) as wallet:
         # Check balance first
         balance = await wallet.get_balance()

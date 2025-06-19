@@ -1,11 +1,6 @@
-#!/usr/bin/env python3
-"""Example: Multi-mint wallet operations.
-
-Shows how to work with multiple mints, check balances per mint,
-and move funds between mints.
-"""
-
 import asyncio
+import os
+from dotenv import load_dotenv
 from sixty_nuts.wallet import Wallet
 
 
@@ -162,10 +157,16 @@ async def consolidate_to_primary_mint(wallet: Wallet):
 
 async def main():
     """Main example."""
+    load_dotenv()
+    nsec = os.getenv("NSEC")
+    if not nsec:
+        print("Error: NSEC environment variable not set. Please create a .env file.")
+        return
+
     # Initialize wallet with multiple mints
     async with Wallet(
-        nsec="nsec1vl83hlk8ltz85002gr7qr8mxmsaf8ny8nee95z75vaygetnuvzuqqp5lrx",
-        mint_urls=[MINTS["minibits"], MINTS["21mint"]],
+        nsec=nsec,
+        mint_urls=[MINTS["minibits"], MINTS["lnbits"]],
     ) as wallet:
         # Check balances across mints
         balances = await check_multi_mint_balance(wallet)

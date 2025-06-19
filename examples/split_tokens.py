@@ -1,12 +1,7 @@
-#!/usr/bin/env python3
-"""Example: Split tokens into specific denominations.
-
-Shows how to split your balance into specific token denominations.
-Useful for privacy and preparing tokens for specific payment amounts.
-"""
-
 import asyncio
+import os
 import sys
+from dotenv import load_dotenv
 from sixty_nuts.wallet import Wallet
 
 
@@ -65,7 +60,7 @@ async def prepare_exact_amount(wallet: Wallet, amount: int):
 async def main():
     """Main example."""
     if len(sys.argv) < 2:
-        print("Usage: python split_tokens.py <amount> [amount2] [amount3] ...")
+        print("Usage: python split_tokens.py <amount> [amount2] [amount2] ...")
         print("Example: python split_tokens.py 100 50 25 10 5")
         print("\nOr to prepare exact amount:")
         print("Usage: python split_tokens.py <amount>")
@@ -74,9 +69,15 @@ async def main():
 
     amounts = [int(arg) for arg in sys.argv[1:]]
 
+    load_dotenv()
+    nsec = os.getenv("NSEC")
+    if not nsec:
+        print("Error: NSEC environment variable not set. Please create a .env file.")
+        return
+
     # Initialize wallet
     async with Wallet(
-        nsec="nsec1vl83hlk8ltz85002gr7qr8mxmsaf8ny8nee95z75vaygetnuvzuqqp5lrx",
+        nsec=nsec,
     ) as wallet:
         if len(amounts) == 1:
             # Prepare exact amount

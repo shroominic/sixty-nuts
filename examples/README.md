@@ -21,6 +21,21 @@ Before running the examples, you need to install the dependencies:
 
 This will install all required dependencies including the sixty_nuts library itself.
 
+## Configuration
+
+To run these examples, you need to set up your Nostr private key (`nsec`) as an environment variable. This is a crucial security measure to avoid hardcoding sensitive information.
+
+1.  **Create a `.env` file:** Copy the example environment file:
+    ```bash
+    cp .env.example .env
+    ```
+
+2.  **Edit `.env`:** Open the newly created `.env` file and replace `your_nostr_private_key_here` with your actual `nsec` (Nostr private key).
+    ```dotenv
+    NSEC=nsec1...
+    ```
+    **Important:** Do not commit your `.env` file to version control!
+
 ## Basic Operations
 
 ### mint_and_send.py
